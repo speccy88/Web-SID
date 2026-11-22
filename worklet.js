@@ -32,6 +32,11 @@ class SIDcogProcessor extends AudioWorkletProcessor {
           this.player.setManual(data.image);
           this.dirty = true;
           break;
+        case 'track':
+          if (this.archiveId && this.archiveId !== data.track.id) this.player.program.delete(this.archiveId);
+          this.archiveId = data.track.id;
+          this.player.program.set(data.track.id, data.track);
+          break;
         case 'dump':
           this.player.program.set('import', data.track);
           break;
