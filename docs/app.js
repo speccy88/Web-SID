@@ -1,3 +1,5 @@
+import { ARCHIVE_DUMPS } from './archive-catalog.js';
+import { loadArchiveTrack } from './archive.js';
 import { AudioTransport } from './audio.js';
 import { RegisterRack, drawWordmark } from './register-rack.js';
 import { Display } from './renderer.js';
@@ -34,6 +36,8 @@ let importRequest = 0;
 let rateChange;
 let wanted = false;
 let starting = false;
+let loadingTrack = false;
+let activeEpoch = -1;
 let ended = false;
 let muted = false;
 let epoch = 0;
@@ -52,7 +56,10 @@ for (const {id: value, label} of CHAPTERS) {
     ? musicOptions : demoOptions;
   group.append(new Option(label, value));
 }
-chapterPicker.append(musicOptions, demoOptions);
+const archiveOptions = document.createElement('optgroup');
+archiveOptions.label = 'SIDcog P2 collection';
+for (const [value, {label}] of ARCHIVE_DUMPS) archiveOptions.append(new Option(label, value));
+chapterPicker.append(musicOptions, demoOptions, archiveOptions);
 for (const rate of MUSIC_RATES) musicRate.add(new Option(rate + ' Hz', String(rate)));
 
 const audio = new AudioTransport(
@@ -86,6 +93,7 @@ const audio = new AudioTransport(
 function failAudio(error) {
   wanted = false;
   starting = false;
+  loadingTrack = false;
   audioError.textContent = error.message || 'Audio could not start. Try again.';
   audioError.hidden = false;
   syncStatus();
@@ -100,7 +108,7 @@ function syncStatus() {
   if (!audioError.hidden) {
     state = 'error';
     label = 'Audio error';
-  } else if (starting) {
+  } else if (starting || loadingTrack) {
     state = 'starting';
     label = 'Loading audio';
   } else if (ended) {
@@ -119,7 +127,7 @@ function syncStatus() {
   id('status').dataset.state = state;
   if (id('status-text').textContent !== label) id('status-text').textContent = label;
   id('toggle-text').textContent = action;
-  toggleButton.disabled = starting;
+  toggleButton.disabled = starting || loadingTrack;
   id('transport-icon').setAttribute('d', playing ? 'M6 5h4v14H6zm8 0h4v14h-4z' : 'M8 5v14l11-7z');
   const output = context ? number.format(context.sampleRate) + ' Hz' : 'pending';
   id('rates').value = 'Internal ' + INTERNAL_RATE.toLocaleString('en-CA', {maximumFractionDigits:3}) + ' Hz · Output ' + output;
@@ -131,12 +139,35 @@ function updateGain() {
 
 function changeChapterLabel() {
   id('current-chapter').textContent = chapter === 'manual' ? 'Manual synthesis'
-    : chapter === 'import' ? dump?.label ?? 'Local dump' : chapterLabels.get(chapter);
+    : chapter === 'import' ? dump?.label ?? 'Local dump' : chapterLabels.get(chapter) ?? ARCHIVE_DUMPS.get(chapter)?.label;
   chapterPicker.value = chapter === 'manual' ? demoChapter : chapter;
 }
 
-function requestChapter() {
-  audio.send({type:'select', id:chapter, advance:chapter !== 'import' && chapter !== 'manual', epoch});
+async function requestChapter() {
+  if (!audio.node) return;
+  const selection = chapter;
+  const requestEpoch = epoch;
+  if (ARCHIVE_DUMPS.has(selection)) {
+    loadingTrack = true;
+    audio.send({type:'run', value:false});
+    syncStatus();
+    try {
+      const track = await loadArchiveTrack(selection);
+      if (requestEpoch !== epoch || !audio.node) return;
+      audio.send({type:'track', track});
+    } catch (error) {
+      if (requestEpoch === epoch) {
+        loadingTrack = false;
+        failAudio(error);
+      }
+      return;
+    }
+  }
+  loadingTrack = false;
+  activeEpoch = requestEpoch;
+  audio.send({type:'select', id:selection, advance:selection === 'intro' || selection === 'main', epoch:requestEpoch});
+  audio.send({type:'run', value:wanted});
+  syncStatus();
 }
 
 function selectChapter(value) {
@@ -145,6 +176,8 @@ function selectChapter(value) {
   ended = false;
   seconds = 0;
   epoch++;
+  loadingTrack = false;
+  audioError.hidden = true;
   display.clear();
   const isManual = chapter === 'manual';
   id('mode').value = isManual ? 'manual' : 'demo';
@@ -180,12 +213,13 @@ async function startOrPause() {
       if (dump) audio.send({type:'dump', track:dump});
       sendMusicSettings();
       audio.send({type:'manual', image:manualImage});
-      requestChapter();
+      activeEpoch = -1;
     }
     updateGain();
     wanted = true;
-    audio.send({type:'run', value:true});
     starting = false;
+    if (activeEpoch !== epoch) await requestChapter();
+    else audio.send({type:'run', value:true});
     syncStatus();
   } catch (error) {
     failAudio(error);

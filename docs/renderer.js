@@ -1,3 +1,4 @@
+import { ARCHIVE_DUMPS } from './archive-catalog.js';
 import { bitmapText, centerText } from './font.js';
 import { EXTRA_DUMPS, INTRO_CUES, MAIN_CUES } from './sequences.js';
 
@@ -159,7 +160,7 @@ export class Display {
         ctx.fillStyle = '#290f3b';
         ctx.fillRect(x, 221, width, 44);
         ctx.fillStyle = COLOR.white;
-        centerText(ctx, musicLabels[id] || '', 234, 2);
+        centerText(ctx, (musicLabels[id] ?? ARCHIVE_DUMPS.get(id)?.label.toUpperCase() ?? '').slice(0, 26), 234, 2);
       }
       ctx.restore();
     }
