@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A browser port of P1 SIDcog v1.4 with an audio waveform display, register dump playback, and manual synthesis controls.">
+  <meta name="theme-color" content="#0c0b19">
+  <title>SIDcog Demo</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+<main class="page">
+  <header class="masthead">
+    <div class="mast-copy">
+      <div class="engine-name"><span class="chip" aria-hidden="true">▦</span> PROPELLER P1 <span class="slash">/</span> SIDcog v1.4</div>
+      <h1><span class="sr-only">SIDcog Demo</span><canvas id="wordmark" width="62" height="9" aria-hidden="true"></canvas></h1>
+    </div>
+    <button id="about-open" class="quiet" type="button">About</button>
+  </header>
+
+  <div class="deck">
+  <section class="console" id="console" aria-labelledby="monitor-title">
+    <div class="panel-caption">
+      <h2 id="monitor-title"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12h4l3-7 4 14 3-10 2 3h4"/></svg>Output waveform</h2>
+      <span class="format">MONO PCM</span>
+    </div>
+    <div class="screen" id="screen">
+      <canvas id="display" width="450" height="360" role="img" aria-label="SIDcog oscilloscope and pixel graphics">Animated SIDcog output waveform and scrolling text.</canvas>
+      <button class="screen-exit" id="full-exit" type="button" aria-label="Exit fullscreen">Exit fullscreen</button>
+    </div>
+    <div class="mobile-levels" aria-hidden="true">
+      <span>V1 <i></i></span><span>V2 <i></i></span><span>V3 <i></i></span>
+    </div>
+    <div class="status-line">
+      <span id="status" class="status" role="status"><span class="lamp" aria-hidden="true"></span><span id="status-text">Ready</span></span>
+      <span id="current-chapter" class="current">013.dmp music</span>
+      <time id="time">00:00</time>
+    </div>
+    <div class="toolbar">
+      <button class="primary" id="toggle" type="button">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path id="transport-icon" d="M8 5v14l11-7z" fill="currentColor"/></svg>
+        <span id="toggle-text">Start audio</span>
+      </button>
+      <button id="restart" type="button" title="Restart the selection" aria-label="Restart selection">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 11a8 8 0 1 1 2 6.3M4 5v6h6"/></svg>
+      </button>
+      <label class="sr-only" for="chapter">Track or chapter</label>
+      <select id="chapter" aria-label="Track or chapter"></select>
+      <span class="toolbar-divider" aria-hidden="true"></span>
+      <div class="volume">
+        <button id="mute" type="button" aria-pressed="false" title="Mute output" aria-label="Mute output">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path id="mute-icon" d="M15 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/></svg>
+        </button>
+        <label class="sr-only" for="volume">Output volume</label>
+        <input id="volume" type="range" min="0" max="100" value="65" aria-label="Output volume">
+      </div>
+      <button id="crt" class="crt" type="button" aria-pressed="false" title="Toggle scanlines and waveform persistence">CRT</button>
+      <button id="fullscreen" type="button" title="Fullscreen" aria-label="Fullscreen" aria-pressed="false">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/></svg>
+      </button>
+    </div>
+    <p id="audio-error" class="error" role="alert" hidden></p>
+  </section>
+
+  <section class="rack" aria-labelledby="rack-title">
+    <div class="panel-caption">
+      <h2 id="rack-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5zM8 2v3m4-3v3m4-3v3M8 19v3m4-3v3m4-3v3M2 8h3m-3 4h3m-3 4h3m14-8h3m-3 4h3m-3 4h3"/></svg>Voice registers</h2>
+      <span id="frame-readout" class="format" title="Zero-based register frame">FRAME —</span>
+    </div>
+    <div id="voices"></div>
+    <div class="activity-block">
+      <div class="activity-label"><h3>Register activity</h3><span>4 s history</span></div>
+      <div class="activity-plot">
+        <div class="lane-labels" aria-hidden="true"><span>V1</span><span>V2</span><span>V3</span><span>FX</span></div>
+        <canvas id="activity" width="240" height="59" role="img" aria-label="Four seconds of register changes, grouped by voice and global registers"></canvas>
+      </div>
+    </div>
+    <div class="global-registers" aria-label="Global register values">
+      <div><span>Cutoff</span><strong id="cutoff-readout">0</strong></div>
+      <div><span>Resonance</span><strong id="res-readout">0</strong></div>
+      <div><span>SID volume</span><strong id="vol-readout">0</strong></div>
+    </div>
+  </section>
+  </div>
+
+  <div class="options">
+    <details id="dump-options">
+      <summary>Register dump playback</summary>
+      <div class="panel">
+        <h2>Bundled music</h2>
+        <p class="hint"><strong>Lost Friend</strong> · 2:17 at 50 Hz · <a href="https://obex.parallax.com/obex/sidcog-v1-3/" target="_blank" rel="noopener">Parallax OBEX example</a></p>
+        <div class="import-row music-settings">
+          <label for="music-rate">013.dmp rate <select id="music-rate" aria-label="013.dmp rate"></select></label>
+          <label class="prelude"><input id="music-prelude" type="checkbox"> Include the recorded prelude</label>
+        </div>
+        <p class="hint">013.dmp starts after the two opening beeps by default. Changing these settings restarts 013.dmp if it is selected.</p>
+        <h2 class="import-title">Import register dump</h2>
+        <p class="hint">Choose a local, headerless .dmp file with one 25-byte SID register image per frame.</p>
+        <p class="hint">The file stays in this browser. For a C64 .sid file, export a raw register dump first.</p>
+        <div class="import-row">
+          <label class="file-button" for="dump-file">Choose .dmp</label>
+          <input class="file-input" id="dump-file" type="file" accept=".dmp,application/octet-stream">
+          <label for="dump-rate">Frame rate <input id="dump-rate" type="number" min="1" max="300" step="any" value="50" inputmode="decimal"> Hz</label>
+        </div>
+        <p id="dump-message" class="hint" role="status"></p>
+      </div>
+    </details>
+
+    <details id="sound-options">
+      <summary>Sound controls</summary>
+      <div class="panel">
+        <div class="panel-header">
+          <label for="mode">Mode <select id="mode"><option value="demo">Demo</option><option value="manual">Manual</option></select></label>
+          <output id="rates" class="rate">Internal 30,792.918 Hz · Output pending</output>
+        </div>
+        <p class="hint" id="mode-note">Select Manual to edit the SID registers and pause the demonstration sequence.</p>
+        <fieldset id="manual-voice" disabled>
+          <legend>Voice registers</legend>
+          <label for="voice">Voice <select id="voice"><option value="0">Voice 1</option><option value="1">Voice 2</option><option value="2">Voice 3</option></select></label>
+          <div id="voice-bits" class="bits"></div>
+          <div id="voice-values" class="sliders"></div>
+        </fieldset>
+        <fieldset id="manual-filter" disabled>
+          <legend>Filter and SID volume</legend>
+          <div id="filter-bits" class="bits"></div>
+          <div id="filter-values" class="sliders"></div>
+        </fieldset>
+        <div class="registers">
+          <h2>SID registers <span>Hexadecimal</span></h2>
+          <dl id="register-view"></dl>
+        </div>
+      </div>
+    </details>
+  </div>
+</main>
+
+<dialog id="about" aria-labelledby="about-title">
+  <div class="dialog-head">
+    <h2 id="about-title">About SIDcog Demo</h2>
+    <form method="dialog"><button class="quiet">Close</button></form>
+  </div>
+  <p>This is a browser port of <strong>P1 SIDcog v1.4</strong>, the January 2021 revision by Johannes Ahlebrand and Ada Gottensträter. One AudioWorklet runs the three voices, envelopes, combined waveform table, fixed-point filter, and mixer. It converts the original dual-mono duty value to PCM and resamples the 30,792.918 Hz synthesis output for your audio device.</p>
+  <p>The reference description assigns six of the Propeller P1’s eight cogs to sound, composite video, two graphics tasks, SD access, and control. Here, the AudioWorklet consumes a timed 25-byte register stream. The Canvas display follows its playback position and draws the waveform from its PCM.</p>
+  <p>The black introduction, blue display, bitmap lettering, and scrolling text are reconstructed from the supplied scene descriptions. The music chapter plays the supplied <code>013.dmp</code>, which the Parallax forum identifies as Ahle’s SIDcog demo dump. Playback starts at the first music block by default. Register dump playback settings offer the recorded prelude and the forum’s other frame rates. The track menu also includes <strong>Lost Friend</strong>, the example register dump from Johannes Ahlebrand’s Parallax OBEX package, played at the example’s 50 Hz rate.</p>
+  <p>The observatory artwork was created with GPT Image for this player. The register panel shows each voice’s seven bytes, with brief highlights when bits change. The miniature plots show the actual amplitude envelopes sampled from the synthesizer. The activity display has one horizontal lane per register, with new changes entering from the right. The frame counter uses zero-based dump positions.</p>
+  <p>The port retains the v1.4 ADSR approximation, its combined-wave quirks, and its filter coefficient decoding. The original SID’s ADSR timing bug is absent from this engine.</p>
+  <div class="about-links">
+    <a href="./assets/README.md" target="_blank" rel="noopener">Source and verification</a>
+    <a href="./assets/NOTICE.txt" target="_blank" rel="noopener">Copyright and permission notices</a>
+  </div>
+</dialog>
+</body>
+</html>
